@@ -4,24 +4,31 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import io
+import concurrent.futures  # เพิ่มไลบรารีนี้สำหรับทำ Threading
 
-# 1. ตั้งค่าหน้าเว็บ (ต้องเป็นคำสั่งแรกสุดของ Streamlit เสมอ)
-st.set_page_config(page_title="ระบบดึงข้อมูลรับแจ้ง", layout="wide")
+st.set_page_config(page_title="ระบบดึงข้อมูลรับแจ้ง", layout="centered", page_icon="📄")
 
-# 2. ดึง API Key จากระบบรักษาความปลอดภัยของเว็บ
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stButton>button {
+        width: 100%;
+        border-radius: 8px;
+        height: 45px;
+        font-size: 16px;
+        font-weight: bold;
+        transition: 0.3s;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 API_KEY = st.secrets["API_KEY"]
 genai.configure(api_key=API_KEY)
 
-# 3. ตรวจสอบรายชื่อโมเดลที่รองรับ (ย้ายมาไว้ตรงนี้)
-try:
-    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    st.info(f"รายชื่อ AI ที่ระบบรองรับ: {available_models}")
-except Exception as e:
-    st.error(f"ไม่สามารถดึงรายชื่อโมเดลได้ ตรวจสอบ API Key: {e}")
-
-# 4. ฟังก์ชันประมวลผล
 def process_image_with_ai(image):
-    model = genai.GenerativeModel('gemini-flash-latest')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = """
     ดึงข้อมูลจากรูปภาพใบรับแจ้งนี้ และส่งออกเป็นรูปแบบ JSON เท่านั้น
     โดยใช้โครงสร้าง Key ดังนี้:
@@ -40,33 +47,61 @@ def process_image_with_ai(image):
     result_text = response.text.replace('```json', '').replace('```', '').strip()
     return json.loads(result_text)
 
-# 5. ส่วนแสดงผลบนหน้าเว็บ
-st.title("ระบบแปลงรูปภาพใบรับแจ้งเป็น Excel")
+st.markdown("<h2 style='text-align: center; color: #2e3b4e;'>📄 ระบบสกัดข้อมูลใบรับแจ้ง</h2>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666;'>อัปโหลดรูปภาพใบรับแจ้งเพื่อแปลงเป็น Excel อัตโนมัติ</p>", unsafe_allow_html=True)
+st.write("---")
 
 uploaded_files = st.file_uploader(
-    "อัปโหลดรูปภาพใบรับแจ้ง (เลือกได้หลายรูปพร้อมกัน)", 
-    type=["jpg", "png", "jpeg"], accept_multiple_files=True
+    "อัปโหลดไฟล์ที่นี่", 
+    type=["jpg", "png", "jpeg"], accept_multiple_files=True,
+    label_visibility="collapsed"
 )
 
 if uploaded_files:
-    if st.button("สกัดข้อมูลทั้งหมดด้วย AI", type="primary"):
-        all_data = []
-        my_bar = st.progress(0, text="กำลังประมวลผล...")
+    if st.button("✨ เริ่มสกัดข้อมูล", type="primary"):
+        # จองพื้นที่ในลิสต์ไว้ให้เท่ากับจำนวนรูป เพื่อรักษาลำดับข้อมูล
+        all_data = [None] * len(uploaded_files)
         
-        for i, uploaded_file in enumerate(uploaded_files):
-            image = Image.open(uploaded_file)
-            try:
-                extracted_data = process_image_with_ai(image)
-                all_data.append(extracted_data)
-            except Exception as e:
-                st.error(f"ไฟล์ {uploaded_file.name} มีปัญหา: {e}")
+        status_text = st.empty()
+        progress_bar = st.progress(0)
+        
+        status_text.markdown(f"**กำลังประมวลผลคู่ขนาน {len(uploaded_files)} ไฟล์...** ⏳")
+        completed = 0
+        
+        # ตั้งค่าจำนวน Worker (จำกัดที่ 3-5 เพื่อไม่ให้โดน API แบนข้อหา Rate Limit)
+        max_workers = min(5, len(uploaded_files))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # ส่งงานให้ Worker ทำพร้อมกัน
+            future_to_index = {
+                executor.submit(process_image_with_ai, Image.open(file)): i 
+                for i, file in enumerate(uploaded_files)
+            }
             
-            my_bar.progress(int(((i + 1) / len(uploaded_files)) * 100))
+            # รอดึงผลลัพธ์จากรูปที่เสร็จแล้ว
+            for future in concurrent.futures.as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    data = future.result()
+                    all_data[index] = data  # ใส่ข้อมูลกลับไปในลำดับเดิม
+                except Exception as e:
+                    st.error(f"เกิดข้อผิดพลาดกับไฟล์ที่ {index + 1}: {e}")
+                
+                # อัปเดตหลอดความคืบหน้า
+                completed += 1
+                progress_bar.progress(int((completed / len(uploaded_files)) * 100))
+        
+        # กรองเอาเฉพาะข้อมูลที่สำเร็จ (ตัด None ทิ้งกรณีมี Error)
+        valid_data = [d for d in all_data if d is not None]
+        
+        status_text.empty()
+        progress_bar.empty()
+        
+        if valid_data:
+            st.success(f"✅ ประมวลผลเสร็จสิ้น {len(valid_data)} รายการ!")
+            df = pd.DataFrame(valid_data)
             
-        if all_data:
-            st.success("ประมวลผลเสร็จสิ้น! ตรวจสอบตัวอย่างและกดดาวน์โหลด")
-            df = pd.DataFrame(all_data)
-            st.dataframe(df)
+            st.dataframe(df, use_container_width=True, hide_index=True)
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:

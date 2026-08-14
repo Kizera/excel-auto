@@ -21,7 +21,7 @@ except Exception as e:
 
 # 4. ฟังก์ชันประมวลผล
 def process_image_with_ai(image):
-    model = genai.GenerativeModel('gemini-1.5-flash-001')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = """
     ดึงข้อมูลจากรูปภาพใบรับแจ้งนี้ และส่งออกเป็นรูปแบบ JSON เท่านั้น
     โดยใช้โครงสร้าง Key ดังนี้:

@@ -10,7 +10,7 @@ API_KEY = st.secrets["API_KEY"]
 genai.configure(api_key=API_KEY)
 
 def process_image_with_ai(image):
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
     prompt = """
     ดึงข้อมูลจากรูปภาพใบรับแจ้งนี้ และส่งออกเป็นรูปแบบ JSON เท่านั้น
     โดยใช้โครงสร้าง Key ดังนี้:

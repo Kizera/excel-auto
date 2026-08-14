@@ -5,10 +5,21 @@ from PIL import Image
 import json
 import io
 
-# ดึง API Key จากระบบรักษาความปลอดภัยของเว็บ
+# 1. ตั้งค่าหน้าเว็บ (ต้องเป็นคำสั่งแรกสุดของ Streamlit เสมอ)
+st.set_page_config(page_title="ระบบดึงข้อมูลรับแจ้ง", layout="wide")
+
+# 2. ดึง API Key จากระบบรักษาความปลอดภัยของเว็บ
 API_KEY = st.secrets["API_KEY"]
 genai.configure(api_key=API_KEY)
 
+# 3. ตรวจสอบรายชื่อโมเดลที่รองรับ (ย้ายมาไว้ตรงนี้)
+try:
+    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    st.info(f"รายชื่อ AI ที่ระบบรองรับ: {available_models}")
+except Exception as e:
+    st.error(f"ไม่สามารถดึงรายชื่อโมเดลได้ ตรวจสอบ API Key: {e}")
+
+# 4. ฟังก์ชันประมวลผล
 def process_image_with_ai(image):
     model = genai.GenerativeModel('gemini-1.5-flash-001')
     prompt = """
@@ -29,7 +40,7 @@ def process_image_with_ai(image):
     result_text = response.text.replace('```json', '').replace('```', '').strip()
     return json.loads(result_text)
 
-st.set_page_config(page_title="ระบบดึงข้อมูลรับแจ้ง", layout="wide")
+# 5. ส่วนแสดงผลบนหน้าเว็บ
 st.title("ระบบแปลงรูปภาพใบรับแจ้งเป็น Excel")
 
 uploaded_files = st.file_uploader(
